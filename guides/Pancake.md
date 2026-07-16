@@ -27,7 +27,12 @@ Three things about this board differ from the other Picoware ESP32 targets, and 
 
 **PSRAM is not optional.** Picoware's framebuffer is 8 bits per pixel, so at 320x480 it is 150 KB. That does not fit in the C5's internal SRAM, so `lcd.c` allocates it with `MALLOC_CAP_SPIRAM` and `lcd_init()` fails if PSRAM is unavailable. The build script checks `CONFIG_SPIRAM` for this reason.
 
-**The display and the SD card share one SPI bus.** The C5 exposes a single general-purpose SPI host, and both devices are wired to it, differing only by chip select. This rules out MicroPython's `machine.SDCard`, which always calls `spi_bus_initialize()` and raises if the bus is already up. Instead the card is mounted at the ESP-IDF level (`esp_vfs_fat_sdspi_mount`), and both drivers tolerate the bus already being initialized by the other. Consequently the card lives at `/sdcard` over POSIX and is not on the MicroPython VFS — the same arrangement the Cardputer uses, which `picoware/system/storage.py` already accounts for.
+**The display and the SD card share one SPI bus.** The C5 exposes a single general-purpose SPI host, and both devices are wired to it, differing only by chip select. The card is mounted through `machine.SDCard` (slot 2, which is SPI2 on this chip) exactly as on the Cardputer, so it lives on MicroPython's VFS, and a POSIX bridge exposes it at `/sdcard` for the C modules that use `fopen()`. `picoware/system/storage.py` already accounts for that arrangement.
+
+This works only because of ordering: `machine.SDCard` always calls `spi_bus_initialize()` itself and raises if the bus is already up, and `ViewManager` builds `Storage` before `Draw`. So the card claims the bus first and the display attaches to it (`lcd.c` tolerates `ESP_ERR_INVALID_STATE`). Two consequences worth knowing before changing anything here:
+
+- `machine.SDCard` fixes the bus at `max_transfer_sz = 4000`, so the display pushes the framebuffer in 6-line chunks (3840 bytes). Raising `LCD_SWAP_LINES` breaks the display whenever a card is inserted.
+- Do **not** switch to `esp_vfs_fat_sdspi_mount()` to dodge the ordering constraint. It links ESP-IDF's FatFs next to MicroPython's oofatfs, and both export `f_open`/`f_mount`/... with *different* signatures (oofatfs takes a leading `FATFS*`). The linker matches on name alone, so it builds and then corrupts memory on the first SD access.
 
 **There is no ST7796 driver in the ESP-IDF.** The panel speaks the same generic command set as the ST7789 for everything `esp_lcd` drives, so the ST7789 driver is reused and only the ST7796-specific power/gamma registers are written afterwards, in `lcd_send_st7796_tuning()`.
 

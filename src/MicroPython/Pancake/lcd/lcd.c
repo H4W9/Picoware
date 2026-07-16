@@ -28,7 +28,12 @@ static const FontTable *s_current_font = &Font16;
 static uint8_t *s_framebuffer;
 static uint16_t s_palette[256];
 
-#define LCD_SWAP_LINES 8U
+// The SD card brings this SPI bus up before the display does (ViewManager
+// builds Storage before Draw), and machine.SDCard fixes the bus at
+// max_transfer_sz = 4000 bytes. Each chunk pushed here is
+// LCD_WIDTH * LCD_SWAP_LINES * 2 bytes, so 6 lines (3840) is the most that
+// still fits. Raising this silently breaks the display whenever a card is in.
+#define LCD_SWAP_LINES 6U
 #define LCD_BACKLIGHT_TIMER LEDC_TIMER_0
 #define LCD_BACKLIGHT_CHANNEL LEDC_CHANNEL_0
 #define LCD_BACKLIGHT_DUTY_RES LEDC_TIMER_10_BIT

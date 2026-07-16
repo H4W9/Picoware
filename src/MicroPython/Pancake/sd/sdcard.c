@@ -1,26 +1,38 @@
 /*
  * SD card mounting for the Marauder Pancake.
  *
- * The Cardputer mounts its card through machine.SDCard, but that path is not
- * usable here: it calls spi_bus_initialize() unconditionally and raises if the
- * bus is already up. On this board the panel and the card are two chip selects
- * on one SPI bus (the C5 exposes a single general-purpose host), so whichever
- * driver initializes first would lock the other out.
+ * This follows the Cardputer exactly: mount through machine.SDCard so the card
+ * lives on MicroPython's VFS (backed by MicroPython's own oofatfs), then put a
+ * POSIX bridge over it at /sdcard for the C modules that use fopen().
  *
- * Mounting at the ESP-IDF level instead lets the card attach to an already
- * initialized bus. This yields a real POSIX mount at /sdcard, which is what
- * sd_mp.c and storage.c use, so the Cardputer's MicroPython-VFS POSIX bridge is
- * not needed. As on the Cardputer, the card is not exposed through the
- * MicroPython VFS, and storage.py accounts for that.
+ * Do NOT be tempted to mount this with esp_vfs_fat_sdspi_mount() instead. That
+ * links ESP-IDF's FatFs alongside MicroPython's oofatfs, and the two export the
+ * same symbols (f_open, f_mount, ...) with DIFFERENT signatures - oofatfs takes
+ * a leading FATFS*. The linker matches on name only, so IDF's VFS layer would
+ * silently call oofatfs with mismatched arguments and corrupt memory on the
+ * first SD access.
+ *
+ * The panel and the card share one SPI bus (the C5 has a single general-purpose
+ * host), and machine.SDCard always calls spi_bus_initialize() itself and raises
+ * if the bus is already up. That works here only because ViewManager builds
+ * Storage before Draw, so this code runs first and owns the bus; the display
+ * then attaches to it (lcd.c tolerates ESP_ERR_INVALID_STATE). Keep that order.
+ * Note this bus is created with max_transfer_sz = 4000, which is why the display
+ * pushes the framebuffer in chunks small enough to fit - see LCD_SWAP_LINES.
  */
 
 #include "sdcard.h"
 
 #include "board_config.h"
-#include "driver/sdspi_host.h"
-#include "driver/spi_master.h"
-#include "esp_vfs_fat.h"
-#include "sdmmc_cmd.h"
+#include "sdcard_vfs_bridge.h"
+#include "extmod/modmachine.h"
+#include "extmod/vfs.h"
+#include "modmachine.h"
+#include "py/runtime.h"
+
+#include <dirent.h>
+#include <errno.h>
+#include <stdio.h>
 
 #include "../../log/log_mp.h"
 
@@ -29,113 +41,113 @@
 #endif
 
 #define SDCARD_MOUNT_POINT "/sdcard"
-#define SDCARD_MAX_FREQ_KHZ 20000
-#define SDCARD_MAX_OPEN_FILES 5
-#define SDCARD_ALLOCATION_UNIT_SIZE (16 * 1024)
 
-static sdmmc_card_t *s_card;
-static bool s_mounted;
-static bool s_spi_bus_owned;
+// machine.SDCard slots 2+ are SPI. On a chip with one general-purpose SPI host
+// (the C5), slot 2 resolves to SPI2_HOST, which is the bus the panel uses too.
+#define SD_SLOT_SPI2 (2)
+#define SDCARD_FREQ_HZ (20000000)
 
-bool sdcard_is_mounted(void)
+static mp_obj_t s_sdcard_obj = MP_OBJ_NULL;
+static bool s_sdcard_mounted = false;
+
+static void sdcard_try_deinit_obj(void)
 {
-    return s_mounted;
-}
-
-static esp_err_t sdcard_ensure_spi_bus(void)
-{
-    spi_bus_config_t bus_cfg = {
-        .sclk_io_num = PANCAKE_SD_SCLK_GPIO,
-        .mosi_io_num = PANCAKE_SD_MOSI_GPIO,
-        .miso_io_num = PANCAKE_SD_MISO_GPIO,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 4096,
-    };
-
-    esp_err_t err = spi_bus_initialize(PANCAKE_SD_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
-    if (err == ESP_ERR_INVALID_STATE)
-    {
-        // The display already brought the bus up and owns it.
-        s_spi_bus_owned = false;
-        return ESP_OK;
-    }
-
-    if (err == ESP_OK)
-    {
-        s_spi_bus_owned = true;
-    }
-
-    return err;
-}
-
-esp_err_t sdcard_mount(void)
-{
-    if (s_mounted)
-    {
-        return ESP_OK;
-    }
-
-    esp_err_t err = sdcard_ensure_spi_bus();
-    if (err != ESP_OK)
-    {
-        PRINT("SD SPI bus init failed: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-    host.slot = PANCAKE_SD_HOST;
-    host.max_freq_khz = SDCARD_MAX_FREQ_KHZ;
-
-    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot_config.gpio_cs = PANCAKE_SD_CS_GPIO;
-    slot_config.host_id = PANCAKE_SD_HOST;
-
-    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-        .format_if_mount_failed = false,
-        .max_files = SDCARD_MAX_OPEN_FILES,
-        .allocation_unit_size = SDCARD_ALLOCATION_UNIT_SIZE,
-    };
-
-    err = esp_vfs_fat_sdspi_mount(SDCARD_MOUNT_POINT, &host, &slot_config, &mount_config,
-                                  &s_card);
-    if (err != ESP_OK)
-    {
-        PRINT("SD mount failed: %s", esp_err_to_name(err));
-        s_card = NULL;
-
-        if (s_spi_bus_owned)
-        {
-            spi_bus_free(PANCAKE_SD_HOST);
-            s_spi_bus_owned = false;
-        }
-        return err;
-    }
-
-    s_mounted = true;
-    return ESP_OK;
-}
-
-void sdcard_unmount(void)
-{
-    if (!s_mounted)
+    if (s_sdcard_obj == MP_OBJ_NULL)
     {
         return;
     }
 
-    esp_err_t err = esp_vfs_fat_sdcard_unmount(SDCARD_MOUNT_POINT, s_card);
-    if (err != ESP_OK)
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0)
     {
-        PRINT("SD unmount failed: %s", esp_err_to_name(err));
+        mp_obj_t method[2];
+        mp_load_method_maybe(s_sdcard_obj, MP_QSTR_deinit, method);
+        if (method[0] != MP_OBJ_NULL)
+        {
+            mp_call_method_n_kw(0, 0, method);
+        }
+        nlr_pop();
     }
 
-    s_card = NULL;
-    s_mounted = false;
+    s_sdcard_obj = MP_OBJ_NULL;
+}
 
-    // Only tear the bus down if the display isn't sharing it.
-    if (s_spi_bus_owned)
+bool sdcard_is_mounted(void)
+{
+    return s_sdcard_mounted;
+}
+
+esp_err_t sdcard_mount(void)
+{
+    if (s_sdcard_mounted)
     {
-        spi_bus_free(PANCAKE_SD_HOST);
-        s_spi_bus_owned = false;
+        return ESP_OK;
     }
+
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0)
+    {
+        mp_obj_t ctor_args[] = {
+            MP_OBJ_NEW_QSTR(MP_QSTR_slot),
+            MP_OBJ_NEW_SMALL_INT(SD_SLOT_SPI2),
+            MP_OBJ_NEW_QSTR(MP_QSTR_miso),
+            MP_OBJ_NEW_SMALL_INT(PANCAKE_SD_MISO_GPIO),
+            MP_OBJ_NEW_QSTR(MP_QSTR_mosi),
+            MP_OBJ_NEW_SMALL_INT(PANCAKE_SD_MOSI_GPIO),
+            MP_OBJ_NEW_QSTR(MP_QSTR_sck),
+            MP_OBJ_NEW_SMALL_INT(PANCAKE_SD_SCLK_GPIO),
+            MP_OBJ_NEW_QSTR(MP_QSTR_cs),
+            MP_OBJ_NEW_SMALL_INT(PANCAKE_SD_CS_GPIO),
+            MP_OBJ_NEW_QSTR(MP_QSTR_freq),
+            MP_OBJ_NEW_SMALL_INT(SDCARD_FREQ_HZ),
+        };
+
+        mp_obj_t sd_obj = mp_call_function_n_kw(MP_OBJ_FROM_PTR(&machine_sdcard_type), 0, 6, ctor_args);
+        mp_obj_t mount_args[] = {
+            sd_obj,
+            mp_obj_new_str(SDCARD_MOUNT_POINT, sizeof(SDCARD_MOUNT_POINT) - 1),
+        };
+        mp_vfs_mount(2, mount_args, (mp_map_t *)&mp_const_empty_map);
+
+        esp_err_t bridge_ret = sdcard_vfs_bridge_register();
+        if (bridge_ret != ESP_OK)
+        {
+            // VFS mount succeeded but POSIX bridge failed... MicroPython VFS should still work
+            PRINT("POSIX bridge registration failed: %s", esp_err_to_name(bridge_ret));
+        }
+
+        s_sdcard_obj = sd_obj;
+        s_sdcard_mounted = true;
+        nlr_pop();
+        return ESP_OK;
+    }
+
+    s_sdcard_mounted = false;
+    sdcard_try_deinit_obj();
+    PRINT("SD mount failed via machine.SDCard/VFS");
+    return ESP_FAIL;
+}
+
+void sdcard_unmount(void)
+{
+    if (!s_sdcard_mounted && s_sdcard_obj == MP_OBJ_NULL)
+    {
+        return;
+    }
+
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0)
+    {
+        mp_vfs_umount(mp_obj_new_str(SDCARD_MOUNT_POINT, sizeof(SDCARD_MOUNT_POINT) - 1));
+        nlr_pop();
+    }
+    else
+    {
+        PRINT("SD unmount failed");
+    }
+
+    sdcard_vfs_bridge_unregister();
+
+    s_sdcard_mounted = false;
+    sdcard_try_deinit_obj();
 }

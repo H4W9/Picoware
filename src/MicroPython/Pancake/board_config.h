@@ -32,7 +32,9 @@
 // Battery fuel gauge (MAX17048)
 #define PANCAKE_BATTERY_I2C_ADDR 0x36
 
-// SD card (SDSPI, shares the LCD's bus)
+// SD card (SDSPI, shares the LCD's bus).
+// The host is not passed explicitly: sdcard.c mounts via machine.SDCard slot 2,
+// which resolves to SPI2_HOST on this chip. This macro documents that pairing.
 #define PANCAKE_SD_HOST PANCAKE_LCD_HOST
 #define PANCAKE_SD_CS_GPIO GPIO_NUM_7
 #define PANCAKE_SD_MOSI_GPIO PANCAKE_LCD_MOSI_GPIO
