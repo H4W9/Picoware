@@ -94,6 +94,19 @@ jobs:
             ls -l builds/MicroPython/Picoware-Pancake* 2>/dev/null || echo "no Pancake artifacts produced"
           fi
 
+      - name: Collect debug symbols
+        if: always()
+        run: |
+          # The .elf is what turns a Guru Meditation address into a file and
+          # line (riscv32-esp-elf-addr2line -pfiaC -e micropython.elf <MEPC>).
+          # It must come from the same build as the flashed .bin or the
+          # addresses mean nothing.
+          mkdir -p debug
+          BUILD="micropython/ports/esp32/build-$BOARD"
+          cp "$BUILD/micropython.elf" debug/ 2>/dev/null || echo "no elf"
+          cp "$BUILD/micropython.map" debug/ 2>/dev/null || echo "no map"
+          ls -l debug || true
+
       - name: Upload Pancake binaries
         uses: actions/upload-artifact@v4
         with:
@@ -103,3 +116,11 @@ jobs:
             builds/MicroPython/Picoware-Pancake-bootloader.bin
             builds/MicroPython/Picoware-Pancake-partition-table.bin
           if-no-files-found: error
+
+      - name: Upload debug symbols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Picoware-Pancake-debug
+          path: debug/*
+          if-no-files-found: warn
