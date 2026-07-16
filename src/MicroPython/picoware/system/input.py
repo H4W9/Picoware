@@ -15,8 +15,9 @@ from picoware.system.boards import (
 # _TOUCH_ZONES so the rest of Picoware sees ordinary button presses.
 _TOUCH_ONLY_BOARDS = (BOARD_CROWPANEL_10_1, BOARD_PANCAKE)
 
-# Per board: (left, right, up, down) zones, each as (x_min, x_max, y_min, y_max).
-# Anything outside every zone counts as a center press.
+# Per board: (left, right, up, down[, back]) zones, each as
+# (x_min, x_max, y_min, y_max). The back zone is optional. Anything outside
+# every zone counts as a center press.
 _TOUCH_ZONES = {
     BOARD_CROWPANEL_10_1: (
         (0, 124, 160, 440),
@@ -24,12 +25,17 @@ _TOUCH_ZONES = {
         (256, 768, 0, 120),
         (256, 768, 480, 600),
     ),
-    # 320x480 portrait, same proportions as the CrowPanel's zones.
+    # 320x480 portrait, same proportions as the CrowPanel's zones, plus a back
+    # corner. Without one there is no way to leave an app: every view tests for
+    # BUTTON_BACK, and a board with no keys can only produce what is mapped
+    # here. Top-left is the usual spot for a back control on this hardware, and
+    # it does not overlap the up/left zones.
     BOARD_PANCAKE: (
         (0, 40, 130, 350),
         (280, 320, 130, 350),
         (80, 240, 0, 96),
         (80, 240, 384, 480),
+        (0, 70, 0, 70),
     ),
 }
 
@@ -628,9 +634,14 @@ class Input:
         self._elapsed_touch_start = self._elapsed_touch_now
         self._last_point = (x, y)
 
-        left, right, up, down = _TOUCH_ZONES[self._current_board_id]
+        zones = _TOUCH_ZONES[self._current_board_id]
+        left, right, up, down = zones[:4]
+        back = zones[4] if len(zones) > 4 else None
 
-        if right[0] <= x <= right[1] and right[2] <= y <= right[3]:
+        # Checked first: a corner that no other zone claims.
+        if back is not None and back[0] <= x <= back[1] and back[2] <= y <= back[3]:
+            self._last_button = buttons.BUTTON_BACK
+        elif right[0] <= x <= right[1] and right[2] <= y <= right[3]:
             self._last_button = buttons.BUTTON_RIGHT
         elif left[0] <= x <= left[1] and left[2] <= y <= left[3]:
             self._last_button = buttons.BUTTON_LEFT
