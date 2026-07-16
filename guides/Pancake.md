@@ -45,18 +45,36 @@ With no keys, screen areas are mapped to d-pad buttons in `_TOUCH_ZONES` in `pic
 If the zones feel wrong in the hand, they are plain pixel rectangles and can be retuned in `_TOUCH_ZONES` without touching any other board.
 
 ## Building
-The build needs bash, an ESP-IDF 5.5+ install with esp32c5 support, and a MicroPython checkout recent enough to ship the `ESP32_GENERIC_C5` board. On Windows, run it under WSL.
+
+### In CI (no local toolchain)
+The `Build Pancake` workflow (`.github/workflows/build-pancake.yml`) builds this board and uploads `Picoware-Pancake.bin` as an artifact. Run it from the Actions tab; it also runs on pushes to `pancake-port` that touch the port. The MicroPython and ESP-IDF versions are workflow inputs if you need to try a different pair.
+
+### Locally
+You need bash, ESP-IDF, and a MicroPython checkout that ships the `ESP32_GENERIC_C5` board. **The C5 board first appeared in MicroPython v1.27.0**, and v1.28.0 recommends **ESP-IDF v5.5.1** — keep those two in step. On Windows, build under WSL (the esp32 port does not build natively on Windows).
 
 ```bash
-export MICROPYTHON_ROOT=~/pico/micropython
+# ESP-IDF v5.5.1, C5 toolchain only
+git clone -b v5.5.1 --recursive https://github.com/espressif/esp-idf.git ~/esp-idf
+~/esp-idf/install.sh esp32c5
+
+# MicroPython v1.28.0
+git clone -b v1.28.0 https://github.com/micropython/micropython.git ~/micropython
+
+export ESP_IDF_DIR=~/esp-idf
+export MICROPYTHON_ROOT=~/micropython
 export MICROPYTHON_ESP32_PORT=$MICROPYTHON_ROOT/ports/esp32
-export ESP_IDF_DIR=~/.espressif/v5.5.2/esp-idf
+
+. "$ESP_IDF_DIR/export.sh"
+make -C "$MICROPYTHON_ESP32_PORT" BOARD=ESP32_GENERIC_C5 submodules
 
 bash tools/micropython-pancake.sh
 bash tools/micropython-pancake-flash.sh --port /dev/ttyUSB0
 ```
 
 The build writes `Picoware-Pancake.bin` (plus the bootloader and partition table) to `builds/MicroPython`.
+
+> [!TIP]
+> On Windows, build in WSL but **flash from Windows** against the same `.bin` files. Getting the board's serial port into WSL needs `usbipd` and is more trouble than it is worth.
 
 > [!NOTE]
 > The C5's bootloader offset is `0x2000`, not `0x0` as on the ESP32-S3. If you flash with your own tool rather than the script, use that offset or the board will not boot.

@@ -1,0 +1,105 @@
+name: Build Pancake
+
+# Builds only the Marauder Pancake (ESP32-C5). Other boards are untouched.
+#
+# The steps below deliberately mirror the manual build in guides/Pancake.md, so
+# this file doubles as an executable copy of those instructions.
+
+on:
+  push:
+    branches: [pancake-port]
+    paths:
+      - 'src/MicroPython/**'
+      - 'tools/micropython-pancake.sh'
+      - '.github/workflows/build-pancake.yml'
+  pull_request:
+    paths:
+      - 'src/MicroPython/**'
+      - 'tools/micropython-pancake.sh'
+      - '.github/workflows/build-pancake.yml'
+  workflow_dispatch:
+    inputs:
+      micropython_ref:
+        description: 'MicroPython git ref (must ship the ESP32_GENERIC_C5 board — v1.27.0 or newer)'
+        type: string
+        default: 'v1.28.0'
+      idf_version:
+        description: 'ESP-IDF version (v1.28.0 recommends v5.5.1)'
+        type: string
+        default: 'v5.5.1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # ESP32_GENERIC_C5 first shipped in MicroPython v1.27.0, and v1.28.0
+      # recommends ESP-IDF v5.5.1. Keep these two in step when bumping either.
+      MICROPYTHON_REF: ${{ inputs.micropython_ref || 'v1.28.0' }}
+      IDF_VERSION: ${{ inputs.idf_version || 'v5.5.1' }}
+      BOARD: ESP32_GENERIC_C5
+
+    steps:
+      - name: Checkout Picoware
+        uses: actions/checkout@v4
+
+      - name: Checkout MicroPython (${{ inputs.micropython_ref || 'v1.28.0' }})
+        uses: actions/checkout@v4
+        with:
+          repository: micropython/micropython
+          ref: ${{ env.MICROPYTHON_REF }}
+          path: micropython
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git wget flex bison gperf python3 python3-pip python3-venv \
+            cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
+
+      - name: Cache ESP-IDF and toolchain
+        uses: actions/cache@v4
+        id: idf-cache
+        with:
+          path: |
+            ~/esp-idf
+            ~/.espressif
+          key: idf-${{ env.IDF_VERSION }}-esp32c5-${{ runner.os }}
+
+      - name: Install ESP-IDF ${{ env.IDF_VERSION }}
+        if: steps.idf-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone -b "$IDF_VERSION" --depth 1 --recursive \
+            https://github.com/espressif/esp-idf.git "$HOME/esp-idf"
+          # Only the C5 toolchain is needed, which keeps the cache small.
+          "$HOME/esp-idf/install.sh" esp32c5
+
+      - name: Build Pancake firmware
+        run: |
+          export ESP_IDF_DIR="$HOME/esp-idf"
+          export MICROPYTHON_ROOT="$GITHUB_WORKSPACE/micropython"
+          export MICROPYTHON_ESP32_PORT="$MICROPYTHON_ROOT/ports/esp32"
+
+          . "$ESP_IDF_DIR/export.sh"
+
+          # A fresh MicroPython checkout has no submodules fetched yet; the
+          # build script (like its Cardputer sibling) assumes they are present.
+          make -C "$MICROPYTHON_ESP32_PORT" BOARD="$BOARD" submodules
+
+          bash tools/micropython-pancake.sh
+
+      - name: Summarize artifacts
+        if: always()
+        run: |
+          if [ -d builds/MicroPython ]; then
+            ls -l builds/MicroPython/Picoware-Pancake* 2>/dev/null || echo "no Pancake artifacts produced"
+          fi
+
+      - name: Upload Pancake binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: Picoware-Pancake
+          path: |
+            builds/MicroPython/Picoware-Pancake.bin
+            builds/MicroPython/Picoware-Pancake-bootloader.bin
+            builds/MicroPython/Picoware-Pancake-partition-table.bin
+          if-no-files-found: error
