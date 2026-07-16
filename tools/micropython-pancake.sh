@@ -117,6 +117,7 @@ for module_path in \
     jpeg \
     vt \
     textbox \
+    usb_video \
     gameboy \
     audio \
     uf2loader \

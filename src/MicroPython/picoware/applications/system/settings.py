@@ -143,10 +143,12 @@ def __apply_toggle_setting(index: int, state: bool) -> None:
     elif index == STATE_LVGL_MODE:
         _view_manager.draw.use_lvgl = state
     elif index == STATE_USB_STREAM:
-        if state:
-            _view_manager.usb_video_stream.start()
-        else:
-            _view_manager.usb_video_stream.stop()
+        # None on boards whose chip has no USB-OTG peripheral.
+        if _view_manager.usb_video_stream is not None:
+            if state:
+                _view_manager.usb_video_stream.start()
+            else:
+                _view_manager.usb_video_stream.stop()
 
 
 def __open_toggle(setting_index: int) -> None:
