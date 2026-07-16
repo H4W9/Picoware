@@ -320,5 +320,8 @@ bash "$picoware_dir"/tools/micropython-crowpanel.sh
 echo "Starting Cardputer-ADV build process..."
 bash "$picoware_dir"/tools/micropython-cardputer.sh
 
+echo "Starting Pancake build process..."
+bash "$picoware_dir"/tools/micropython-pancake.sh
+
 echo "---------------------------------------"
 echo "All MicroPython Picoware builds completed successfully!"

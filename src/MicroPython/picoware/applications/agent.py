@@ -234,8 +234,17 @@ def start(view_manager) -> bool:
         connect_to_saved_wifi(view_manager)
         return False
     
-    from picoware.system.boards import BOARD_CARDPUTER, BOARD_CROWPANEL_10_1
-    if view_manager.board_id not in (BOARD_CARDPUTER, BOARD_CROWPANEL_10_1):
+    from picoware.system.boards import (
+        BOARD_CARDPUTER,
+        BOARD_CROWPANEL_10_1,
+        BOARD_PANCAKE,
+    )
+
+    if view_manager.board_id not in (
+        BOARD_CARDPUTER,
+        BOARD_CROWPANEL_10_1,
+        BOARD_PANCAKE,
+    ):
         view_manager.freq(True)
 
     from picoware.gui.menu import Menu
@@ -354,7 +363,11 @@ def run(view_manager) -> None:
 
 def stop(view_manager) -> None:
     """Tear down widgets and agent, reset state."""
-    from picoware.system.boards import BOARD_CARDPUTER, BOARD_CROWPANEL_10_1
+    from picoware.system.boards import (
+        BOARD_CARDPUTER,
+        BOARD_CROWPANEL_10_1,
+        BOARD_PANCAKE,
+    )
     from gc import collect
     global _agent, _menu, _conversation, _scroll_offset, _max_scroll
 
@@ -369,7 +382,11 @@ def stop(view_manager) -> None:
         del _menu
         _menu = None
     
-    if view_manager.board_id not in (BOARD_CARDPUTER, BOARD_CROWPANEL_10_1):
+    if view_manager.board_id not in (
+        BOARD_CARDPUTER,
+        BOARD_CROWPANEL_10_1,
+        BOARD_PANCAKE,
+    ):
         view_manager.freq(False)
 
     collect()

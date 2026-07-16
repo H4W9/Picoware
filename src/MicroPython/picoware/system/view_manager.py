@@ -494,9 +494,14 @@ class ViewManager:
             BOARD_PICOCALC_PIMORONI_2W,
             BOARD_CROWPANEL_10_1,
             BOARD_CARDPUTER,
+            BOARD_PANCAKE,
         )
 
-        if self._current_board_id in (BOARD_CROWPANEL_10_1, BOARD_CARDPUTER):
+        if self._current_board_id in (
+            BOARD_CROWPANEL_10_1,
+            BOARD_CARDPUTER,
+            BOARD_PANCAKE,
+        ):
             return freq(240000000)
 
         if frequency is not None:

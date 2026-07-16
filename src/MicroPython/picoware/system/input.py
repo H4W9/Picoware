@@ -6,8 +6,32 @@ from picoware.system.boards import (
     BOARD_WAVESHARE_3_49_RP2350,
     BOARD_CROWPANEL_10_1,
     BOARD_CARDPUTER,
+    BOARD_PANCAKE,
     BOARD_ID,
 )
+
+# Boards with no keys at all, where the only input is a touch panel read through
+# the `touch` C module. Screen areas are mapped to d-pad buttons per board in
+# _TOUCH_ZONES so the rest of Picoware sees ordinary button presses.
+_TOUCH_ONLY_BOARDS = (BOARD_CROWPANEL_10_1, BOARD_PANCAKE)
+
+# Per board: (left, right, up, down) zones, each as (x_min, x_max, y_min, y_max).
+# Anything outside every zone counts as a center press.
+_TOUCH_ZONES = {
+    BOARD_CROWPANEL_10_1: (
+        (0, 124, 160, 440),
+        (900, 1024, 160, 440),
+        (256, 768, 0, 120),
+        (256, 768, 480, 600),
+    ),
+    # 320x480 portrait, same proportions as the CrowPanel's zones.
+    BOARD_PANCAKE: (
+        (0, 40, 130, 350),
+        (280, 320, 130, 350),
+        (80, 240, 0, 96),
+        (80, 240, 384, 480),
+    ),
+}
 
 
 class Input:
@@ -30,7 +54,7 @@ class Input:
         "_was_pressed",
         "_was_capitalized",
         "_button_map",
-        "_crowpanel_touch",
+        "_touch_device",
     )
 
     def __init__(self, back_button=buttons.BUTTON_BACK):
@@ -48,7 +72,7 @@ class Input:
         self._key_back = (
             buttons.BUTTON_BACK if not _back_special else buttons.BUTTON_BACKSPACE
         )
-        self._crowpanel_touch = None
+        self._touch_device = None
 
         if self._current_board_id == BOARD_WAVESHARE_1_28_RP2350:
             from waveshare_touch import init, TOUCH_GESTURE_MODE, TOUCH_GESTURE_NONE
@@ -92,13 +116,13 @@ class Input:
 
             self._delay_ms = 200
 
-        elif self._current_board_id == BOARD_CROWPANEL_10_1:
+        elif self._current_board_id in _TOUCH_ONLY_BOARDS:
             import touch
-            
+
             class Touch(touch.Touch):
                 pass
 
-            self._crowpanel_touch = Touch()
+            self._touch_device = Touch()
             self._last_point = (0, 0)
             self._delay_ms = 120
 
@@ -287,9 +311,9 @@ class Input:
             del self.pin
             self.pin = None
 
-        if self._crowpanel_touch is not None:
-            del self._crowpanel_touch
-            self._crowpanel_touch = None
+        if self._touch_device is not None:
+            del self._touch_device
+            self._touch_device = None
 
         if self._current_board_id == BOARD_CARDPUTER:
             from cardputer_keyboard import deinit
@@ -299,8 +323,7 @@ class Input:
             BOARD_WAVESHARE_1_28_RP2350,
             BOARD_WAVESHARE_1_43_RP2350,
             BOARD_WAVESHARE_3_49_RP2350,
-            BOARD_CROWPANEL_10_1,
-        ):
+        ) + _TOUCH_ONLY_BOARDS:
             from picoware_southbridge import deinit
 
             deinit()
@@ -327,6 +350,11 @@ class Input:
 
             return get_percentage()
 
+        if self._current_board_id == BOARD_PANCAKE:
+            from pancake_battery import get_percentage
+
+            return get_percentage()
+
         from picoware_southbridge import get_battery_percentage
 
         return get_battery_percentage()
@@ -334,8 +362,8 @@ class Input:
     @property
     def button(self) -> int:
         """Returns the last button pressed."""
-        if self._current_board_id == BOARD_CROWPANEL_10_1:
-            self._poll_crowpanel_touch()
+        if self._current_board_id in _TOUCH_ONLY_BOARDS:
+            self._poll_touch()
         elif self._current_board_id == BOARD_CARDPUTER:
             from cardputer_keyboard import poll, key_available
 
@@ -367,8 +395,7 @@ class Input:
             BOARD_WAVESHARE_1_28_RP2350,
             BOARD_WAVESHARE_1_43_RP2350,
             BOARD_WAVESHARE_3_49_RP2350,
-            BOARD_CROWPANEL_10_1,
-        )
+        ) + _TOUCH_ONLY_BOARDS
 
     @property
     def point(self) -> tuple:
@@ -494,8 +521,8 @@ class Input:
             BOARD_WAVESHARE_3_49_RP2350,
         ):
             return self._last_point != (0, 0)
-        if self._current_board_id == BOARD_CROWPANEL_10_1:
-            self._poll_crowpanel_touch()
+        if self._current_board_id in _TOUCH_ONLY_BOARDS:
+            self._poll_touch()
             return self._last_point != (0, 0)
         if self._current_board_id == BOARD_CARDPUTER:
             from cardputer_keyboard import key_available
@@ -579,20 +606,20 @@ class Input:
 
             reset_state()
 
-    def _poll_crowpanel_touch(self):
-        """Poll the CrowPanel touch controller and map touch areas to button events."""
-        if self._crowpanel_touch is None:
+    def _poll_touch(self):
+        """Poll the touch controller and map touch areas to button events."""
+        if self._touch_device is None:
             return
 
-        if not self._crowpanel_touch.read():
+        if not self._touch_device.read():
             self._last_point = (0, 0)
             self._last_button = buttons.BUTTON_NONE
             self._was_pressed = False
             self._elapsed_time = 0
             return
 
-        x = self._crowpanel_touch.x
-        y = self._crowpanel_touch.y
+        x = self._touch_device.x
+        y = self._touch_device.y
 
         self._elapsed_touch_now = int(ticks_ms())
         if self._elapsed_touch_now - self._elapsed_touch_start < self._delay_ms:
@@ -601,13 +628,15 @@ class Input:
         self._elapsed_touch_start = self._elapsed_touch_now
         self._last_point = (x, y)
 
-        if 900 <= x <= 1024 and 160 <= y <= 440:
+        left, right, up, down = _TOUCH_ZONES[self._current_board_id]
+
+        if right[0] <= x <= right[1] and right[2] <= y <= right[3]:
             self._last_button = buttons.BUTTON_RIGHT
-        elif 0 <= x <= 124 and 160 <= y <= 440:
+        elif left[0] <= x <= left[1] and left[2] <= y <= left[3]:
             self._last_button = buttons.BUTTON_LEFT
-        elif 256 <= x <= 768 and 0 <= y <= 120:
+        elif up[0] <= x <= up[1] and up[2] <= y <= up[3]:
             self._last_button = buttons.BUTTON_UP
-        elif 256 <= x <= 768 and 480 <= y <= 600:
+        elif down[0] <= x <= down[1] and down[2] <= y <= down[3]:
             self._last_button = buttons.BUTTON_DOWN
         else:
             self._last_button = buttons.BUTTON_CENTER
