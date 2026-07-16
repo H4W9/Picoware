@@ -1297,7 +1297,18 @@ bool http_file_download(const char *url, const char *destination_path)
 #include "mbedtls/platform.h"
 
 #define HTTP_RESPONSE_INITIAL_SIZE (4 * 1024)
+
+// The whole response is accumulated here before it is handed back or written to
+// a file, so this cap is also the largest file the app store can download.
+#if defined(PANCAKE)
+// This board has 4 MB of PSRAM, and malloc() serves blocks this large from it
+// (anything over CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL), so the cap does not have
+// to fit in internal RAM the way the Cardputer's does.
+#define HTTP_RESPONSE_MAX_SIZE (1024 * 1024)
+#else
 #define HTTP_RESPONSE_MAX_SIZE (64 * 1024)
+#endif
+
 #define HTTP_TASK_ERR_NO_RESPONSE (-0x7000)
 
 /* Avoid MicroPython heap in task logs */

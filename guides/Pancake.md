@@ -41,11 +41,14 @@ With no keys, screen areas are mapped to d-pad buttons in `_TOUCH_ZONES` in `pic
 
 | Area | Button |
 |---|---|
+| Top-left corner (70x70) | `BACK` |
 | Top edge, centered | `UP` |
 | Bottom edge, centered | `DOWN` |
 | Left edge, middle | `LEFT` |
 | Right edge, middle | `RIGHT` |
 | Anywhere else | `CENTER` |
+
+The back corner is not decoration: every view exits on `BUTTON_BACK`, and a board with no keys can only produce the buttons mapped here — without it you can open an app but never leave it. (The CrowPanel's map has no back zone, which is why this one is not an exact copy of it.)
 
 If the zones feel wrong in the hand, they are plain pixel rectangles and can be retuned in `_TOUCH_ZONES` without touching any other board.
 
