@@ -294,7 +294,15 @@ static esp_err_t display_setup_panel(void)
     ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "panel reset failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "panel init failed");
     ESP_RETURN_ON_ERROR(lcd_send_st7796_tuning(), TAG, "st7796 tuning failed");
-    // The panel is used in its native portrait orientation, so no swap_xy/mirror.
+
+    // Native portrait, so no swap_xy. But this panel is wired such that column
+    // address order has to be reversed, or everything renders mirrored
+    // left-to-right. This matches the MADCTL value TFT_eSPI writes for this
+    // panel at rotation 0: 0x48 = MX | BGR (the BGR half comes from
+    // rgb_ele_order above). It also keeps raw FT6336 coordinates lining up with
+    // the display without any transform in touch.c.
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(s_panel, true, false), TAG,
+                        "failed to set mirror");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_invert_color(s_panel, true), TAG,
                         "failed to set invert color");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "failed to enable panel");
