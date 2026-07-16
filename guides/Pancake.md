@@ -49,6 +49,14 @@ With no keys, screen areas are mapped to d-pad buttons in `_TOUCH_ZONES` in `pic
 
 If the zones feel wrong in the hand, they are plain pixel rectangles and can be retuned in `_TOUCH_ZONES` without touching any other board.
 
+## Typing
+There is no physical keyboard, so text entry (a WiFi password, for example) goes through Picoware's on-screen keyboard. That keyboard is driven by d-pad *buttons* rather than raw touch points: the tap zones above move a cursor around the key grid, and a tap in the middle (`CENTER`) presses the highlighted key.
+
+Because the board has no keys, `onscreen_keyboard` defaults to **on** here — Picoware's default is off, which suits boards like the Cardputer that have real keys. It remains a toggle under **Settings → On-Screen Keyboard**.
+
+> [!NOTE]
+> The default only applies on first boot, when the settings file is created. If Picoware already saved `picoware/settings/picoware.json` to the SD card with the keyboard off, that stored value wins — turn it on in Settings.
+
 ## Building
 
 ### In CI (no local toolchain)

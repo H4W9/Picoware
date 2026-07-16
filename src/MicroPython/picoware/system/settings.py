@@ -7,6 +7,11 @@ class Settings:
 
     def __init__(self, storage):
         from picoware.system.buttons import BUTTON_BACK
+        from picoware.system.boards import BOARD_ID, BOARD_PANCAKE
+
+        # A board with no physical keys has no way to type without the
+        # on-screen keyboard - not even a WiFi password - so it defaults on.
+        _keyboard_default = BOARD_ID == BOARD_PANCAKE
         self._storage = storage
         self._path = "picoware/settings/picoware.json" 
         self._settings = {
@@ -16,7 +21,7 @@ class Settings:
             "exit_button": BUTTON_BACK,
             "gmt_offset": 0,
             "lvgl_mode": False,
-            "onscreen_keyboard": False,
+            "onscreen_keyboard": _keyboard_default,
             "openai_api_key": "",
             "server_username": "",
             "server_password": "",
@@ -33,7 +38,7 @@ class Settings:
                 "exit_button": int(self.__fetch_setting("picoware/settings/exit_button.json", "exit_button", BUTTON_BACK)),
                 "gmt_offset": int(self.__fetch_setting("picoware/settings/gmt_offset.json", "gmt_offset", 0)),
                 "lvgl_mode": bool(self.__fetch_setting("picoware/settings/lvgl_mode.json", "lvgl_mode", False)),
-                "onscreen_keyboard": bool(self.__fetch_setting("picoware/settings/onscreen_keyboard.json", "onscreen_keyboard", False)),
+                "onscreen_keyboard": bool(self.__fetch_setting("picoware/settings/onscreen_keyboard.json", "onscreen_keyboard", _keyboard_default)),
                 "openai_api_key": "",
                 "server_username": self.__fetch_setting("picoware/settings/server_username.json", "username", ""),
                 "server_password": self.__fetch_setting("picoware/settings/server_password.json", "password", ""),
