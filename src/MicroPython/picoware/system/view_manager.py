@@ -50,7 +50,6 @@ class ViewManager:
         from picoware.system.colors import TFT_BLUE, TFT_BLACK, TFT_WHITE
         from picoware.system.buttons import BUTTON_ESCAPE
         from picoware.system.boards import BOARD_CARDPUTER
-        from picoware.system.usb import USBVideoStream
 
         self._active = True
         self._current_view = None
@@ -147,9 +146,17 @@ class ViewManager:
             self.log("LVGL mode enabled: WiFi disabled.", 2)
             self.freq(True)
         
-        # Initialize video stream
-        self._usb_video_stream = USBVideoStream()
-        if settings.usb_stream:
+        # Initialize video stream. Boards with no USB-OTG peripheral (the
+        # ESP32-C5 ones) have no TinyUSB, so usb_video is not built and
+        # machine.USBDevice does not exist; importing usb raises there.
+        try:
+            from picoware.system.usb import USBVideoStream
+
+            self._usb_video_stream = USBVideoStream()
+        except (ImportError, AttributeError):
+            self._usb_video_stream = None
+
+        if self._usb_video_stream is not None and settings.usb_stream:
             self._usb_video_stream.start()
 
         # Clear screen
@@ -338,7 +345,7 @@ class ViewManager:
     
     @property
     def usb_video_stream(self):
-        """Return the USBVideoStream instance."""
+        """Return the USBVideoStream instance, or None if unsupported."""
         return self._usb_video_stream
 
     @property
