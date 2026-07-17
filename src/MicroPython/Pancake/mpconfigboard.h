@@ -14,6 +14,10 @@
 #define MICROPY_HW_I2C0_SCL (10)
 #define MICROPY_HW_I2C0_SDA (9)
 
-#define MICROPY_TASK_STACK_SIZE (16 * 1024)
+// The main task runs ViewManager.__init__, which is a deep chain of frozen
+// Python instantiation into native init (LCD/SD/WiFi). The ESP32-C5 is
+// RISC-V (larger stack frames than the Xtensa S3 boards), so 16 KB overflows
+// here and faults with a corrupt return; 32 KB clears it. RAM is plentiful.
+#define MICROPY_TASK_STACK_SIZE (32 * 1024)
 #define MICROPY_THREAD_STACK_SIZE (8 * 1024)
 #define MICROPY_GC_INITIAL_HEAP_SIZE (128 * 1024)
